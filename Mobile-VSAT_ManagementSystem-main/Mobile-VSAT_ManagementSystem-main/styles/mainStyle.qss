@@ -1,520 +1,355 @@
-/* Global styles - Light theme based on design */
+/* =========================================================
+   MVMS (VSAT Management) — Step 1 Design System QSS
+   - Light theme, consistent tokens, reusable components
+   - Replace your whole QSS with this file
+   ========================================================= */
+
+/* -------------------------
+   1) Global / tokens
+   ------------------------- */
 QWidget {
-    background: #f8f9fa; /* Light gray/off-white background */
-    color: #212529; /* Dark gray/black primary text */
-    font-family: "Segoe UI", "Roboto", sans-serif;
-    font-size: 14px;
-}
-
-/* Navigation container */
-QWidget#NavContainer {
-    background-color: #f1f2f6;
-    border-right: 1px solid #dee2e6;
-}
-
-/* Menu Label */
-#NavContainer QLabel#MenuLabel {
-    color: #082431;
-    font-size: 14px;         /* was 12px */
-    font-weight: 600;        /* clearer title */
-    padding: 16px 12px;
-}
-
-/* Navigation Buttons */
-#NavContainer QPushButton {
-    background-color: transparent;
-    color: #495057;
-    border: none;
-    border-radius: 0;
-    padding: 10px 16px;
-    text-align: left;
-}
-
-#NavContainer QPushButton:hover {
-    background-color: #0f4479ff;
-    color: #e9ecef;
-}
-
-#NavContainer QPushButton:checked {
-    background-color: #707FDD;
-    color: #ffffff;          /* make checked state readable */
-    font-weight: 600;
-}
-
-/* Dashboard background (light) */
-QWidget#DashboardView {
-    background: #f8f9fa;
-}
-
-/* Reusable card surface */
-QWidget#DashboardCard {
-    background: #ffffff;
-    border: 1px solid #e6e8eb;
-    border-radius: 14px;
-}
-
-/* Optional “soft shadow” feel by using a slightly darker outer frame */
-QWidget#DashboardCardOuter {
-    background: rgba(0,0,0,0.03);
-    border-radius: 16px;
-    padding: 2px;
-}
-
-QLabel#SectionTitle {
-    color: #111827;
-    font-size: 15px;
-    font-weight: 600;
-}
-
-QLabel#SecondaryLabel {
-    color: #6b7280;
-    font-size: 12px;
-}
-
-QLabel#PrimaryValue {
-    color: #111827;
-    font-size: 22px;
-    font-weight: 700;
-}
-QLabel[accent="blue"]   { color: #2563eb; }
-QLabel[accent="green"]  { color: #16a34a; }
-QLabel[accent="yellow"] { color: #ca8a04; }
-QLabel[accent="red"]    { color: #dc2626; }
-
-/* ---------- Dashboard (light mode) ---------- */
-QWidget#DashboardView {
-    background: #f8f9fa;
-}
-
-/* Banner */
-QLabel#InfoBanner {
-    background: #2563eb;
-    color: white;
-    padding: 8px 10px;
-    border-radius: 10px;
-    font-weight: 600;
-}
-QLabel#InfoBanner[state="ok"]      { background: #16a34a; }
-QLabel#InfoBanner[state="warning"] { background: #f59e0b; }
-QLabel#InfoBanner[state="info"]    { background: #2563eb; }
-QLabel#InfoBanner[state="error"]   { background: #dc2626; }
-
-/* Card-style group boxes */
-QGroupBox#DashboardCard {
-    background: #ffffff;
-    border: 1px solid #e6e8eb;
-    border-radius: 14px;
-    margin-top: 14px; /* space for title */
-    font-weight: 600;
-    color: #111827;
-}
-QGroupBox#DashboardCard::title {
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    padding: 6px 10px;
-    margin-left: 10px;
-    background: #ffffff;
-    border-radius: 10px;
-    color: #111827;
-}
-
-/* Form labels + values */
-QLabel#SecondaryLabel {
-    color: #6b7280;
-    font-size: 12px;
-}
-
-QLabel#PrimaryValue {
-    color: #111827;
-    font-size: 18px;
-    font-weight: 700;
-}
-QLabel#PrimaryValue[accent="blue"]   { color: #2563eb; }
-QLabel#PrimaryValue[accent="green"]  { color: #16a34a; }
-QLabel#PrimaryValue[accent="yellow"] { color: #ca8a04; }
-QLabel#PrimaryValue[accent="red"]    { color: #dc2626; }
-
-/* Status pill */
-QLabel#StatusPill {
-    padding: 4px 10px;
-    border-radius: 999px;
-    background: #eef2ff;
-    color: #1e40af;
-    font-weight: 700;
-}
-QLabel#StatusPill[state="ok"]      { background: #dcfce7; color: #166534; }
-QLabel#StatusPill[state="warning"] { background: #fef9c3; color: #854d0e; }
-QLabel#StatusPill[state="error"]   { background: #fee2e2; color: #991b1b; }
-QLabel#StatusPill[state="info"]    { background: #e0f2fe; color: #075985; }
-
-/* Map preview */
-QLabel#MapPreview {
-    background: #f3f4f6;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-}
-
-/* Buttons */
-QPushButton {
-    background: #ffffff;
-    border: 1px solid #d1d5db;
-    border-radius: 10px;
-    padding: 8px 12px;
-    color: #111827;
-}
-QPushButton:hover { background: #f3f4f6; }
-QPushButton:pressed { background: #e5e7eb; }
-
-QPushButton[role="primary"] {
-    background: #2563eb;
-    border: 1px solid #2563eb;
-    color: white;
-}
-QPushButton[role="primary"]:hover { background: #1d4ed8; }
-
-QPushButton[role="ghost"] {
-    background: transparent;
-    border: 1px solid transparent;
-    color: #2563eb;
-}
-QPushButton[role="ghost"]:hover {
-    background: #eef2ff;
-    border: 1px solid #c7d2fe;
-}
-
-/* Small icon-like buttons for pan controls */
-QPushButton[role="icon"] {
-    min-width: 36px;
-    min-height: 36px;
-    padding: 0px;
-    font-weight: 700;
-}
-
-/* ---------- ACU (native) ---------- */
-QWidget#AcuNativeView {
-    background: #f8f9fa;
-}
-
-QFrame#acuTopBar {
-    background: #f5f7fb;
-    border: 1px solid #e6e8eb;
-    border-radius: 14px;
-}
-
-QLineEdit#acuHostInput,
-QLineEdit#acuPortInput {
-    background: #ffffff;
-    border: 1px solid #d1d5db;
-    border-radius: 10px;
-    padding: 7px 10px;
-}
-
-QLabel#acuSectionTitle {
-    color: #111827;
-    font-size: 18px;
-    font-weight: 700;
-    padding: 4px 0px;
-}
-
-QLabel#acuSectionSub {
-    color: #6b7280;
-    font-size: 12px;
-    padding-bottom: 6px;
-}
-
-QLabel#acuSubTitle {
-    color: #374151;
-    font-size: 12px;
-    font-weight: 700;
-    padding: 4px 0px;
-}
-
-QFrame#acuCard {
-    background: #f5f7fb;
-    border: 1px solid #e5e9f2;
-    border-radius: 14px;
-}
-
-QLabel#acuCardTitle {
-    color: #6b7280;
-    font-size: 11px;
-}
-
-QLabel#acuCardValue {
-    color: #111827;
-    font-size: 18px;
-    font-weight: 800;
-}
-
-QLabel#acuConnBadge,
-QLabel#acuModeBadge {
-    padding: 6px 10px;
-    border-radius: 999px;
-    font-weight: 700;
-    min-width: 110px;
-}
-
-QLabel#acuConnBadge[state="error"] { background: #fee2e2; color: #991b1b; }
-QLabel#acuConnBadge[state="ok"]    { background: #dcfce7; color: #166534; }
-
-QLabel#acuModeBadge[state="muted"] { background: #f3f4f6; color: #6b7280; }
-QLabel#acuModeBadge[state="info"]  { background: #e0f2fe; color: #075985; }
-
-QPushButton#acuTopStop[role="danger"] {
-    background: #ef4444;
-    border: 1px solid #ef4444;
-    color: white;
-    font-weight: 900;
-    padding: 10px 18px;
-    border-radius: 12px;
-}
-QPushButton#acuTopStop[role="danger"]:hover { background: #dc2626; }
-
-QPushButton#acuStopButton {
-    background: #ef4444;
-    border: 1px solid #ef4444;
-    color: white;
-    font-weight: 900;
-    padding: 12px;
-    border-radius: 12px;
-}
-QPushButton#acuStopButton:hover { background: #dc2626; }
-
-QPushButton#acuSendButton[role="primary"] {
-    font-weight: 800;
-    padding: 10px;
-    border-radius: 12px;
-}
-
-QTextEdit {
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 8px;
-}
-
-/* ---------- App-wide polish ---------- */
-QWidget {
-    background: #f8f9fa;
-    color: #111827;
+    /* Base */
+    background: #F8FAFC;              /* app background */
+    color: #0F172A;                   /* primary text */
     font-family: "Segoe UI", "Roboto", sans-serif;
     font-size: 13px;
+
+    /* Token-like hints (documented here)
+       Accent:   #2563EB
+       Border:   #E2E8F0
+       Muted:    #64748B
+       Surface:  #FFFFFF
+       Surface2: #F1F5F9
+       Radius:   14px
+    */
 }
 
-/* Cards */
-QGroupBox, QFrame {
-    background: #ffffff;
-    border: 1px solid #e6e8eb;
-    border-radius: 14px;
-}
-
-QGroupBox::title {
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    padding: 6px 10px;
-    margin-left: 10px;
-    background: #ffffff;
-    border-radius: 10px;
-    color: #111827;
-    font-weight: 600;
-}
-
-/* Inputs */
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextEdit, QPlainTextEdit {
-    background: #ffffff;
-    border: 1px solid #d1d5db;
-    border-radius: 10px;
-    padding: 6px 10px;
-}
-QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QTextEdit:focus, QPlainTextEdit:focus {
-    border: 1px solid #2563eb;
-}
-
-/* Buttons */
-QPushButton {
-    background: #ffffff;
-    border: 1px solid #d1d5db;
-    border-radius: 10px;
-    padding: 8px 12px;
-    color: #111827;
-}
-QPushButton:hover { background: #f3f4f6; }
-QPushButton:pressed { background: #e5e7eb; }
-
-/* “Primary” buttons */
-QPushButton[role="primary"] {
-    background: #2563eb;
-    border: 1px solid #2563eb;
-    color: white;
-    font-weight: 600;
-}
-QPushButton[role="primary"]:hover { background: #1d4ed8; }
-
-/* “Danger” buttons like STOP */
-QPushButton[role="danger"] {
-    background: #e11d48;
-    border: 1px solid #e11d48;
-    color: white;
+/* Typography helpers (use setObjectName) */
+QLabel#SectionTitle {
+    color: #0F172A;
+    font-size: 15px;
     font-weight: 700;
 }
-QPushButton[role="danger"]:hover { background: #be123c; }
 
-/* ---------- Navigation polish ---------- */
+QLabel#SecondaryLabel {
+    color: #64748B;
+    font-size: 12px;
+}
+
+QLabel#PrimaryValue {
+    color: #0F172A;
+    font-size: 22px;
+    font-weight: 800;
+}
+
+/* Accent states (works for any QLabel) */
+QLabel[accent="blue"]   { color: #2563EB; }
+QLabel[accent="green"]  { color: #16A34A; }
+QLabel[accent="yellow"] { color: #CA8A04; }
+QLabel[accent="red"]    { color: #DC2626; }
+
+/* -------------------------
+   2) Navigation (left rail)
+   ------------------------- */
 QWidget#NavContainer {
-    background: #f1f2f6;
-    border-right: 1px solid #e6e8eb;
+    background: #F1F5F9;
+    border-right: 1px solid #E2E8F0;
 }
 
 #NavContainer QLabel#MenuLabel {
-    color: #111827;
-    font-size: 16px;
-    font-weight: 700;
+    background: transparent;
+    color: #0F172A;
+    font-size: 15px;
+    font-weight: 800;
     padding: 18px 12px;
 }
 
 #NavContainer QPushButton {
     background: transparent;
-    color: #374151;
+    color: #334155;
     border: none;
     padding: 10px 14px;
     text-align: left;
 }
 
 #NavContainer QPushButton:hover {
-    background: #e9eefc;
+    background: #E9EEF9;
+    color: #0F172A;
 }
 
 #NavContainer QPushButton:checked {
-    background: #6a7edb;
-    color: white;
-    font-weight: 700;
-}
-/* ACU internal sidebar */
-QFrame#acuSideNav {
-  background: #0b1d33;
-  border: 1px solid #0b1d33;
-  border-radius: 14px;
-}
-QLabel#acuSideTitle {
-  color: white;
-  font-size: 15px;
-  font-weight: 800;
-}
-QLabel#acuSideSub {
-  color: rgba(255,255,255,0.75);
-  font-size: 11px;
-  margin-bottom: 8px;
-}
-QPushButton#acuNavBtn {
-  background: transparent;
-  color: rgba(255,255,255,0.85);
-  border: none;
-  text-align: left;
-  padding: 8px 10px;
-  border-radius: 10px;
-}
-QPushButton#acuNavBtn:hover {
-  background: rgba(255,255,255,0.08);
-}
-QPushButton#acuNavBtn:checked {
-  background: rgba(255,255,255,0.14);
-  color: white;
-  font-weight: 700;
+    background: #2563EB;
+    color: #FFFFFF;
+    font-weight: 800;
 }
 
-/* Panels */
-QFrame#acuPanel {
-  background: #ffffff;
-  border: 1px solid #e6e8eb;
-  border-radius: 14px;
-}
-/* Subtle HUD plate used behind widgets like Elevation */
-QWidget#HudPlate {
-    background: rgba(248, 250, 252, 0.95);
-    border: 1px solid #e6e8ef;
+/* -------------------------
+   3) Surfaces (Cards / Tiles)
+   ------------------------- */
+/* Dashboard page */
+QWidget#DashboardView { background: #F8FAFC; }
+
+/* Standard card surface (use on QFrame or QWidget) */
+QWidget#DashboardCard,
+QFrame#DashboardCard {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
     border-radius: 14px;
 }
-QWidget#HudPlate {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 rgba(248,250,252,0.95),
-        stop:1 rgba(241,245,249,0.95));
-}
-/* Signal gauge sizing (keeps it from feeling tiny) */
-#SignalGauge {
-    min-height: 210px;
+
+/* Card outer (optional subtle "lift") */
+QWidget#DashboardCardOuter,
+QFrame#DashboardCardOuter {
+    background: rgba(15, 23, 42, 0.03);
+    border-radius: 16px;
+    padding: 2px;
 }
 
-/* Make the C/N row look like an inline KPI */
-QGroupBox#DashboardCard QLabel#SecondaryLabel {
-    padding-top: 2px;
+/* GroupBox card variant (when you need titles) */
+QGroupBox#DashboardCard {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 14px;
+    margin-top: 14px; /* space for title */
+    font-weight: 700;
+    color: #0F172A;
+}
+QGroupBox#DashboardCard::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 6px 10px;
+    margin-left: 10px;
+    background: #FFFFFF;
+    border-radius: 10px;
+    color: #0F172A;
 }
 
-/* Improve C/N label spacing (QFormLayout labels) */
-QGroupBox#DashboardCard QLabel#SecondaryLabel {
-    margin-right: 6px;
+/* -------------------------
+   4) KPI Tile (NEW component)
+   - Use QFrame#setObjectName("KpiTile")
+   ------------------------- */
+QFrame#KpiTile {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 14px;
+    padding: 12px;
 }
-/* Slightly tighter primary numbers inside cards */
-QGroupBox#DashboardCard QLabel#PrimaryValue {
+
+QLabel#KpiLabel {
+    color: #64748B;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+QLabel#KpiValue {
+    color: #0F172A;
     font-size: 20px;
     font-weight: 900;
 }
-/* =========================================================
-   MVMS Dashboard Premium Override (paste at bottom)
-   ========================================================= */
 
-/* HUD plate: premium instrument panel background */
+QLabel#KpiSub {
+    color: #94A3B8;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+/* KPI “status dot/pill” if you want later */
+QLabel#KpiBadge {
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #EEF2FF;
+    color: #1E40AF;
+    font-weight: 800;
+}
+
+/* -------------------------
+   5) Status pill + banner
+   ------------------------- */
+QLabel#StatusPill {
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #EEF2FF;
+    color: #1E40AF;
+    font-weight: 800;
+}
+QLabel#StatusPill[state="ok"]      { background: #DCFCE7; color: #166534; }
+QLabel#StatusPill[state="warning"] { background: #FEF9C3; color: #854D0E; }
+QLabel#StatusPill[state="error"]   { background: #FEE2E2; color: #991B1B; }
+QLabel#StatusPill[state="info"]    { background: #E0F2FE; color: #075985; }
+QLabel#StatusPill[state="muted"]   { background: #F1F5F9; color: #64748B; }
+
+QLabel#InfoBanner {
+    background: #2563EB;
+    color: #FFFFFF;
+    padding: 8px 10px;
+    border-radius: 10px;
+    font-weight: 800;
+}
+QLabel#InfoBanner[state="ok"]      { background: #16A34A; }
+QLabel#InfoBanner[state="warning"] { background: #F59E0B; }
+QLabel#InfoBanner[state="info"]    { background: #2563EB; }
+QLabel#InfoBanner[state="error"]   { background: #DC2626; }
+
+/* -------------------------
+   6) Inputs
+   ------------------------- */
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextEdit, QPlainTextEdit {
+    background: #FFFFFF;
+    border: 1px solid #CBD5E1;
+    border-radius: 10px;
+    padding: 6px 10px;
+    selection-background-color: #2563EB;
+}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QTextEdit:focus, QPlainTextEdit:focus {
+    border: 1px solid #2563EB;
+}
+
+/* -------------------------
+   7) Buttons (one definition only)
+   ------------------------- */
+QPushButton {
+    background: #FFFFFF;
+    border: 1px solid #CBD5E1;
+    border-radius: 10px;
+    padding: 8px 12px;
+    color: #0F172A;
+    font-weight: 600;
+}
+QPushButton:hover { background: #F1F5F9; }
+QPushButton:pressed { background: #E2E8F0; }
+
+QPushButton[role="primary"] {
+    background: #2563EB;
+    border: 1px solid #2563EB;
+    color: #FFFFFF;
+    font-weight: 800;
+}
+QPushButton[role="primary"]:hover { background: #1D4ED8; }
+
+QPushButton[role="ghost"] {
+    background: transparent;
+    border: 1px solid transparent;
+    color: #2563EB;
+    font-weight: 800;
+}
+QPushButton[role="ghost"]:hover {
+    background: #EEF2FF;
+    border: 1px solid #C7D2FE;
+}
+
+QPushButton[role="danger"] {
+    background: #E11D48;
+    border: 1px solid #E11D48;
+    color: #FFFFFF;
+    font-weight: 900;
+}
+QPushButton[role="danger"]:hover { background: #BE123C; }
+
+QPushButton[role="icon"] {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0px;
+    font-weight: 900;
+}
+
+/* -------------------------
+   8) Map / preview / plates
+   ------------------------- */
+QLabel#MapPreview {
+    background: #F1F5F9;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+}
+
+/* Premium instrument plate used behind widgets (kept from yours) */
 QWidget#HudPlate {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
         stop:0 rgba(248,250,252,0.96),
         stop:1 rgba(241,245,249,0.96));
-    border: 1px solid #e6e8ef;
+    border: 1px solid #E2E8F0;
     border-radius: 14px;
 }
 
-/* Signal gauge sizing so it fills the card nicely */
-#SignalGauge {
-    min-height: 220px;
+/* Signal gauge sizing */
+#SignalGauge { min-height: 220px; }
+
+/* -------------------------
+   9) ACU (kept, but simplified)
+   ------------------------- */
+QWidget#AcuNativeView { background: #F8FAFC; }
+
+QFrame#acuTopBar {
+    background: #F1F5F9;
+    border: 1px solid #E2E8F0;
+    border-radius: 14px;
 }
 
-/* SAT OPS mini header inside gauge plate */
-QWidget#KpiHeaderRow {
-    background: transparent;
-}
-
-QLabel#KpiHeaderLeft {
-    color: #0f172a;
-    font-size: 12px;
-    font-weight: 900;
-    letter-spacing: 0.6px;
-}
-
-QLabel#KpiHeaderRight {
-    color: #64748b;
-    font-size: 12px;
-    font-weight: 900;
-    letter-spacing: 0.6px;
-}
-
-/* Make the form row look less like an input field */
-QGroupBox#DashboardCard QFrame#InlineRow {
-    background: #ffffff;
-    border: 1px solid #e6e8ef;
-    border-radius: 12px;
-    padding: 6px 10px;
-}
-
-QGroupBox#DashboardCard QLabel#InlineKey {
-    color: #64748b;
-    font-size: 12px;
-    font-weight: 800;
-}
-
-QGroupBox#DashboardCard QLabel#InlineValue {
-    color: #0f172a;
+QLabel#acuSectionTitle {
+    color: #0F172A;
     font-size: 18px;
     font-weight: 900;
+    padding: 4px 0px;
+}
+QLabel#acuSectionSub {
+    color: #64748B;
+    font-size: 12px;
+    padding-bottom: 6px;
+}
+QLabel#acuSubTitle {
+    color: #334155;
+    font-size: 12px;
+    font-weight: 900;
+    padding: 4px 0px;
 }
 
-QGroupBox#DashboardCard QLabel#InlineValue[accent="green"] {
-    color: #16a34a;
+QFrame#acuCard {
+    background: #F1F5F9;
+    border: 1px solid #E2E8F0;
+    border-radius: 14px;
+}
+QLabel#acuCardTitle { color: #64748B; font-size: 11px; font-weight: 800; }
+QLabel#acuCardValue { color: #0F172A; font-size: 18px; font-weight: 900; }
+
+QLabel#acuConnBadge,
+QLabel#acuModeBadge {
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-weight: 900;
+    min-width: 110px;
+}
+QLabel#acuConnBadge[state="error"] { background: #FEE2E2; color: #991B1B; }
+QLabel#acuConnBadge[state="ok"]    { background: #DCFCE7; color: #166534; }
+QLabel#acuModeBadge[state="muted"] { background: #F1F5F9; color: #64748B; }
+QLabel#acuModeBadge[state="info"]  { background: #E0F2FE; color: #075985; }
+
+/* ACU internal sidebar (kept) */
+QFrame#acuSideNav {
+  background: #0B1D33;
+  border: 1px solid #0B1D33;
+  border-radius: 14px;
+}
+QLabel#acuSideTitle { color: #FFFFFF; font-size: 15px; font-weight: 900; }
+QLabel#acuSideSub { color: rgba(255,255,255,0.75); font-size: 11px; margin-bottom: 8px; }
+
+QPushButton#acuNavBtn {
+  background: transparent;
+  color: rgba(255,255,255,0.88);
+  border: none;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-weight: 700;
+}
+QPushButton#acuNavBtn:hover { background: rgba(255,255,255,0.08); }
+QPushButton#acuNavBtn:checked {
+  background: rgba(255,255,255,0.14);
+  color: #FFFFFF;
+  font-weight: 900;
+}
+
+/* Optional panel */
+QFrame#acuPanel {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
 }
