@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtGui import QTextCursor, QDesktopServices
-from PySide6.QtCore import QObject, QThread, Signal, Slot, Qt, QSettings, QUrl
+from PySide6.QtGui import QTextCursor, QDesktopServices, QPixmap
+from PySide6.QtCore import QObject, QThread, Signal, Slot, Qt, QSettings, QUrl, QTimer
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QLineEdit, QFormLayout,
     QMessageBox, QFrame, QTextEdit, QCheckBox, QSpinBox, QDoubleSpinBox,
     QButtonGroup, QStackedWidget, QSizePolicy, QComboBox
@@ -46,7 +46,8 @@ class AcuWorker(QObject):
         self._client = ACUClient(host=host, port=port)
 
         self.stream_enabled = True
-        self.stream_interval_ms = 300
+        self.stream_interval_ms = 1000
+        self.stream_sat_enabled = False  # New: for GET-SAT streaming
 
         self._pending_cmd: tuple[str, list[int], int, float] | None = None
         self._pending_show: bool = False
@@ -63,6 +64,9 @@ class AcuWorker(QObject):
         self.request_place_read.connect(self._queue_place_read)
         self.request_sat_apply.connect(self._queue_sat_apply)
         self.request_place_apply.connect(self._queue_place_apply)
+        
+        # Timer placeholder (created in start() to ensure thread affinity)
+        self.timer: QTimer | None = None
 
     @Slot()
     def start(self):
@@ -76,140 +80,180 @@ class AcuWorker(QObject):
             self.error.emit(f"Connect failed: {e}")
             return
 
-        while self._running:
-            # 1) Custom command
-            if self._pending_cmd is not None:
-                frame_code, data_list, retries, timeout = self._pending_cmd
-                self._pending_cmd = None
-                try:
-                    parts = [p.strip() for p in frame_code.split(",") if p.strip()]
-                    if len(parts) >= 2:
-                        frame_type = parts[0]
-                        code = parts[1]
-                        extra = parts[2:]
-                        frame = build_frame(frame_type, code, *extra)
-                    else:
-                        frame = build_frame("cmd", frame_code)
+        # Create timer IN THE WORKER THREAD
+        self.timer = QTimer()
+        self.timer.timeout.connect(self._on_tick)
+        self.timer.start(self.stream_interval_ms)
 
-                    self.tx.emit(frame.strip())
-                    resp = self._client.send_raw(frame, retries=retries, timeout=timeout)
-                    self.rx.emit(resp.strip()[:6000])
-
-                    low = resp.lower()
-                    if ",sat" in low:
-                        parsed = parse_sat(resp)
-                    elif ",place" in low:
-                        parsed = parse_place(resp)
-                    elif ",show" in low:
-                        parsed = self._client.show(retries=1, timeout=timeout)
-                    else:
-                        parsed = {"frame_code": "raw", "raw": resp}
-
-                    if isinstance(parsed, dict) and parsed:
-                        self.status.emit(parsed)
-
-                except Exception as e:
-                    self.error.emit(str(e))
-
-            # 2) Manual SHOW
-            if self._pending_show:
-                self._pending_show = False
-                try:
-                    data = self._client.show(retries=1, timeout=1.0)
-                    if isinstance(data, dict):
-                        self.status.emit(data)
-                except Exception as e:
-                    self.error.emit(str(e))
-
-            # 3) SAT read
-            if self._pending_sat_read:
-                self._pending_sat_read = False
-                try:
-                    frame = build_frame("cmd", "sat")
-                    self.tx.emit(frame.strip())
-                    resp = self._client.send_raw(frame, retries=2, timeout=2.0)
-                    self.rx.emit(resp.strip()[:6000])
-                    parsed = parse_sat(resp)
-                    self.status.emit(parsed)
-                except Exception as e:
-                    self.error.emit(str(e))
-
-            # 4) PLACE read
-            if self._pending_place_read:
-                self._pending_place_read = False
-                try:
-                    frame = build_frame("cmd", "place")
-                    self.tx.emit(frame.strip())
-                    resp = self._client.send_raw(frame, retries=2, timeout=2.0)
-                    self.rx.emit(resp.strip()[:6000])
-                    parsed = parse_place(resp)
-                    self.status.emit(parsed)
-                except Exception as e:
-                    self.error.emit(str(e))
-
-            # 5) SAT apply
-            if self._pending_sat_apply is not None:
-                args = self._pending_sat_apply
-                self._pending_sat_apply = None
-                try:
-                    (
-                        name, center_freq, carrier_freq, carrier_rate,
-                        sat_lon, pol_mode, lock_th, retries, timeout
-                    ) = args
-
-                    self.tx.emit(f"cmd,sat {name},{center_freq},{carrier_freq},{carrier_rate},{sat_lon},{pol_mode},{lock_th}")
-                    parsed = self._client.set_satellite(
-                        name=name,
-                        center_freq=center_freq,
-                        carrier_freq=carrier_freq,
-                        carrier_rate=carrier_rate,
-                        sat_lon=sat_lon,
-                        pol_mode=pol_mode,
-                        lock_th=lock_th,
-                        retries=retries,
-                        timeout=timeout,
-                    )
-                    if isinstance(parsed, dict):
-                        self.status.emit(parsed)
-                except Exception as e:
-                    self.error.emit(str(e))
-
-            # 6) PLACE apply
-            if self._pending_place_apply is not None:
-                args = self._pending_place_apply
-                self._pending_place_apply = None
-                try:
-                    lon, lat, heading, retries, timeout = args
-                    self.tx.emit(f"cmd,place {lon},{lat},{heading}")
-                    parsed = self._client.set_place(
-                        lon=lon,
-                        lat=lat,
-                        heading=heading,
-                        retries=retries,
-                        timeout=timeout,
-                    )
-                    if isinstance(parsed, dict):
-                        self.status.emit(parsed)
-                except Exception as e:
-                    self.error.emit(str(e))
-
-            # 7) Stream SHOW
-            if self.stream_enabled:
-                try:
-                    data = self._client.show(retries=1, timeout=1.0)
-                    if isinstance(data, dict):
-                        self.status.emit(data)
-                except Exception as e:
-                    self.error.emit(str(e))
-                    break
-
-            QThread.msleep(self.stream_interval_ms)
-
+    @Slot()
+    def stop(self):
+        self._running = False
+        if self.timer:
+            self.timer.stop()
+            self.timer.deleteLater()
+            self.timer = None
+            
         try:
             self._client.disconnect()
         except Exception:
             pass
         self.connected.emit(False)
+
+    @Slot()
+    def _on_tick(self):
+        if not self._running:
+            return
+
+        # 1) Custom command
+        if self._pending_cmd is not None:
+            frame_code, data_list, retries, timeout = self._pending_cmd
+            self._pending_cmd = None
+            try:
+                parts = [p.strip() for p in frame_code.split(",") if p.strip()]
+                if len(parts) >= 2:
+                    frame_type = parts[0]
+                    code = parts[1]
+                    extra = parts[2:]
+                    frame = build_frame(frame_type, code, *extra)
+                else:
+                    frame = build_frame("cmd", frame_code)
+
+                self.tx.emit(frame.strip())
+                resp = self._client.send_raw(frame, retries=retries, timeout=timeout)
+                self.rx.emit(resp.strip()[:6000])
+
+                low = resp.lower()
+                if ",sat" in low:
+                    parsed = parse_sat(resp)
+                elif ",place" in low:
+                    parsed = parse_place(resp)
+                elif ",show" in low:
+                    parsed = self._client.show(retries=1, timeout=timeout)
+                else:
+                    parsed = {"frame_code": "raw", "raw": resp}
+
+                if isinstance(parsed, dict) and parsed:
+                    self.status.emit(parsed)
+
+            except Exception as e:
+                self.error.emit(str(e))
+
+        # 2) Manual SHOW
+        if self._pending_show:
+            self._pending_show = False
+            try:
+                data = self._client.show(retries=1, timeout=1.0)
+                if isinstance(data, dict):
+                    self.status.emit(data)
+            except Exception as e:
+                self.error.emit(str(e))
+
+        # 3) SAT read
+        if self._pending_sat_read:
+            self._pending_sat_read = False
+            try:
+                frame = build_frame("cmd", "sat")
+                self.tx.emit(frame.strip())
+                frame = build_frame("cmd", "sat")
+                self.tx.emit(frame.strip())
+                resp = self._client.send_raw(frame, retries=2, timeout=5.0)
+                self.rx.emit(resp.strip()[:6000])
+                self.rx.emit(resp.strip()[:6000])
+                parsed = parse_sat(resp)
+                self.status.emit(parsed)
+            except Exception as e:
+                self.error.emit(str(e))
+
+        # 4) PLACE read
+        if self._pending_place_read:
+            self._pending_place_read = False
+            try:
+                frame = build_frame("cmd", "place")
+                self.tx.emit(frame.strip())
+                frame = build_frame("cmd", "place")
+                self.tx.emit(frame.strip())
+                resp = self._client.send_raw(frame, retries=2, timeout=5.0)
+                self.rx.emit(resp.strip()[:6000])
+                self.rx.emit(resp.strip()[:6000])
+                parsed = parse_place(resp)
+                self.status.emit(parsed)
+            except Exception as e:
+                self.error.emit(str(e))
+
+        # 5) SAT apply
+        if self._pending_sat_apply is not None:
+            args = self._pending_sat_apply
+            self._pending_sat_apply = None
+            try:
+                (
+                    name, center_freq, carrier_freq, carrier_rate,
+                    sat_lon, pol_mode, lock_th, retries, timeout
+                ) = args
+
+                self.tx.emit(f"cmd,sat {name},{center_freq},{carrier_freq},{carrier_rate},{sat_lon},{pol_mode},{lock_th}")
+                parsed = self._client.set_satellite(
+                    name=name,
+                    center_freq=center_freq,
+                    carrier_freq=carrier_freq,
+                    carrier_rate=carrier_rate,
+                    sat_lon=sat_lon,
+                    pol_mode=pol_mode,
+                    lock_th=lock_th,
+                    retries=retries,
+                    timeout=timeout,
+                )
+                if isinstance(parsed, dict):
+                    self.status.emit(parsed)
+            except Exception as e:
+                self.error.emit(str(e))
+
+        # 6) PLACE apply
+        if self._pending_place_apply is not None:
+            args = self._pending_place_apply
+            self._pending_place_apply = None
+            try:
+                lon, lat, heading, retries, timeout = args
+                self.tx.emit(f"cmd,place {lon},{lat},{heading}")
+                parsed = self._client.set_place(
+                    lon=lon,
+                    lat=lat,
+                    heading=heading,
+                    retries=retries,
+                    timeout=timeout,
+                )
+                if isinstance(parsed, dict):
+                    self.status.emit(parsed)
+            except Exception as e:
+                self.error.emit(str(e))
+
+        # 7) Stream SHOW
+        if self.stream_enabled:
+            try:
+                data = self._client.show(retries=1, timeout=1.0)
+                if isinstance(data, dict):
+                    self.status.emit(data)
+            except Exception as e:
+                self.error.emit(str(e))
+                # Don't break loop (timer keeps running), just log error
+
+        # 8) Stream GET-SAT
+        if self.stream_sat_enabled:
+            try:
+                frame = build_frame("cmd", "sat")
+                self.tx.emit(frame.strip())
+                resp = self._client.send_raw(frame, retries=1, timeout=1.0)
+                self.rx.emit(resp.strip()[:6000])
+                parsed = parse_sat(resp)
+                if isinstance(parsed, dict):
+                    self.status.emit(parsed)
+            except Exception as e:
+                self.error.emit(f"GET-SAT: {str(e)}")
+
+    @Slot(int)
+    def set_stream_interval(self, ms: int):
+        self.stream_interval_ms = ms
+        if self._running and self.timer.isActive():
+            self.timer.setInterval(self.stream_interval_ms)
 
     @Slot()
     def stop(self):
@@ -222,6 +266,11 @@ class AcuWorker(QObject):
     @Slot(int)
     def set_stream_interval(self, ms: int):
         self.stream_interval_ms = max(100, int(ms))
+
+    @Slot(bool)
+    def set_stream_sat(self, on: bool):
+        """Enable/disable automatic GET-SAT streaming."""
+        self.stream_sat_enabled = on
 
     @Slot(str, list, int, float)
     def _queue_command(self, frame_code: str, data_list: list[int], retries: int, timeout: float):
@@ -300,6 +349,9 @@ def _panel() -> QFrame:
 # ---------------- Main View ----------------
 
 class AcuNativeView(QWidget):
+
+    # Signal to forward telemetry data to main Dashboard
+    telemetry_data = Signal(dict)
     """
     ACU Settings screen with internal pages (like your website):
     - Dashboard (Telemetry + Commands)
@@ -314,7 +366,6 @@ class AcuNativeView(QWidget):
         super().__init__(parent)
         self.setObjectName("AcuNativeView")
 
-        # ---------- Top bar ----------
         self.host_in = QLineEdit("192.168.0.1")
         self.host_in.setObjectName("acuHostInput")
 
@@ -326,12 +377,15 @@ class AcuNativeView(QWidget):
         self.btn_disconnect = QPushButton("Disconnect")
         self.btn_disconnect.setEnabled(False)
 
-        self.chk_stream = QCheckBox("stream")
+        self.chk_stream = QCheckBox("Stream SHOW")
         self.chk_stream.setChecked(True)
+
+        self.chk_stream_sat = QCheckBox("Stream SAT")
+        self.chk_stream_sat.setChecked(False)  # Off by default
 
         self.stream_ms = QSpinBox()
         self.stream_ms.setRange(100, 5000)
-        self.stream_ms.setValue(300)
+        self.stream_ms.setValue(1000)  # ✅ 1 second (slower log updates)
         self.stream_ms.setSuffix(" ms")
 
         self.lbl_conn = QLabel("disconnected")
@@ -364,6 +418,7 @@ class AcuNativeView(QWidget):
         top.addStretch(1)
         top.addWidget(self.btn_stop_top)
         top.addWidget(self.chk_stream)
+        top.addWidget(self.chk_stream_sat)
 
         # ---------- Internal navigation + pages ----------
         self.page_stack = QStackedWidget()
@@ -395,6 +450,7 @@ class AcuNativeView(QWidget):
         self.btn_disconnect.clicked.connect(self._on_disconnect)
 
         self.chk_stream.toggled.connect(self._on_stream_toggle)
+        self.chk_stream_sat.toggled.connect(self._on_stream_sat_toggle)
         self.stream_ms.valueChanged.connect(self._on_stream_interval)
 
         # top STOP (hard stop)
@@ -412,13 +468,6 @@ class AcuNativeView(QWidget):
         lay = QVBoxLayout(nav)
         lay.setContentsMargins(12, 12, 12, 12)
         lay.setSpacing(8)
-
-        title = QLabel("ACU Dashboard")
-        title.setObjectName("acuSideTitle")
-        subtitle = QLabel("Serial / TCP Mikrotik")
-        subtitle.setObjectName("acuSideSub")
-        lay.addWidget(title)
-        lay.addWidget(subtitle)
 
         lay.addSpacing(6)
 
@@ -457,11 +506,32 @@ class AcuNativeView(QWidget):
         v = QVBoxLayout(self.page_log)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(8)
+        
+        # Title row with buttons
+        title_row = QHBoxLayout()
         title = QLabel("Log Console")
         title.setObjectName("acuSectionTitle")
-        v.addWidget(title)
+        title_row.addWidget(title)
+        title_row.addStretch(1)
+        
+        # Pause button
+        self.btn_pause_log = QPushButton("Pause")
+        self.btn_pause_log.setCheckable(True)
+        self.btn_pause_log.setObjectName("acuButton")
+        self.btn_pause_log.clicked.connect(self._toggle_log_pause)
+        title_row.addWidget(self.btn_pause_log)
+        
+        # Clear button
+        self.btn_clear_log = QPushButton("Clear")
+        self.btn_clear_log.setObjectName("acuButton")
+        self.btn_clear_log.clicked.connect(self._clear_log)
+        title_row.addWidget(self.btn_clear_log)
+        
+        v.addLayout(title_row)
+        
         self.log_big = QTextEdit()
         self.log_big.setReadOnly(True)
+        self._log_paused = False
         v.addWidget(self.log_big, 1)
 
         # Page 2: Satellite
@@ -506,14 +576,22 @@ class AcuNativeView(QWidget):
         root.addLayout(grid)
 
         card_defs = [
+            # Row 1: Targets
             ("Target Azimuth (deg)", "target_azimuth"),
             ("Target Elevation (deg)", "target_elevation"),
             ("Target Polarization (deg)", "target_polarization"),
+            ("Satellite Name", "satellite_name"),
+
+            # Row 2: Current
             ("Current Azimuth (deg)", "current_azimuth"),
             ("Current Elevation (deg)", "current_elevation"),
             ("Current Polarization (deg)", "current_polarization"),
+            ("Satellite Longitude (deg)", "satellite_longitude"),
+
+            # Row 3: Status
             ("Antenna Status (code)", "antenna_status"),
             ("AGC Level (V)", "agc"),
+            ("Polarization Mode", "polarization_mode"),
         ]
         for i, (title, key) in enumerate(card_defs):
             c = _make_card(title)
@@ -560,53 +638,34 @@ class AcuNativeView(QWidget):
         self.btn_search = QPushButton("Search (align star)")
         self.btn_stow = QPushButton("Stow (collection)")
         self.btn_stop = QPushButton("STOP")
-        self.btn_get_show = QPushButton("Get Show")
 
         self.btn_stop.setObjectName("acuStopButton")
         self.btn_stop.setProperty("role", "danger")
-        self.btn_get_show.setProperty("role", "primary")
 
         grid.addWidget(self.btn_reset, 0, 0)
         grid.addWidget(self.btn_search, 0, 1)
         grid.addWidget(self.btn_stow, 1, 0)
         grid.addWidget(self.btn_stop, 1, 1)
-        grid.addWidget(self.btn_get_show, 2, 0, 1, 2)
         root.addLayout(grid)
 
-        root.addSpacing(8)
-        custom_title = QLabel("Custom Command")
-        custom_title.setObjectName("acuSubTitle")
-        root.addWidget(custom_title)
-
-        self.frame_in = QLineEdit("cmd,search")
-        self.data_in = QLineEdit("")
-        self.retries_in = QSpinBox()
-        self.retries_in.setRange(0, 10)
-        self.retries_in.setValue(3)
-
-        self.timeout_in = QDoubleSpinBox()
-        self.timeout_in.setRange(0.1, 10.0)
-        self.timeout_in.setSingleStep(0.1)
-        self.timeout_in.setValue(1.0)
+        # Custom Command
+        cmd_title = QLabel("Custom Command")
+        cmd_title.setObjectName("acuSectionTitle")
+        root.addWidget(cmd_title)
 
         form = QFormLayout()
-        form.addRow("Frame code", self.frame_in)
-        form.addRow("Data (comma separated)", self.data_in)
-        root.addLayout(form)
+        form.setLabelAlignment(Qt.AlignLeft)
+        form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        form.setSpacing(8)
 
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Retries"))
-        row.addWidget(self.retries_in)
-        row.addSpacing(10)
-        row.addWidget(QLabel("Timeout (s)"))
-        row.addWidget(self.timeout_in)
-        row.addStretch(1)
-        root.addLayout(row)
+        self.cmd_input = QLineEdit()
+        self.cmd_input.setPlaceholderText("e.g., cmd,search")
+        form.addRow("Frame code", self.cmd_input)
 
         self.btn_send = QPushButton("Send")
-        self.btn_send.setObjectName("acuSendButton")
-        self.btn_send.setProperty("role", "primary")
-        root.addWidget(self.btn_send)
+        self.btn_send.setObjectName("acuPrimaryButton")
+        form.addRow("", self.btn_send)
+        root.addLayout(form)
 
         root.addSpacing(10)
         log_row = QHBoxLayout()
@@ -626,7 +685,6 @@ class AcuNativeView(QWidget):
         root.addWidget(self.log, 1)
 
         # Bind actions
-        self.btn_get_show.clicked.connect(self._request_show)
         self.btn_reset.clicked.connect(lambda: self._send_custom_frame("cmd,reset"))
         self.btn_search.clicked.connect(lambda: self._send_custom_frame("cmd,search"))
         self.btn_stow.clicked.connect(lambda: self._send_custom_frame("cmd,stow"))
@@ -662,7 +720,13 @@ class AcuNativeView(QWidget):
 
         t = QLabel("Live Satellite Read")
         t.setObjectName("acuSubTitle")
+        t.setObjectName("acuSubTitle")
         l.addWidget(t)
+
+        # Connection Status Indicator
+        self.sat_conn_status = QLabel("Status: Disconnected")
+        self.sat_conn_status.setStyleSheet("color: red; font-weight: bold;")
+        l.addWidget(self.sat_conn_status)
 
         self.sat_readout = QTextEdit()
         self.sat_readout.setReadOnly(True)
@@ -686,6 +750,10 @@ class AcuNativeView(QWidget):
         rt.setObjectName("acuSubTitle")
         r.addWidget(rt)
 
+        self.sat_preset = QComboBox()
+        self.sat_preset.addItems(["Custom", "Nusantara 1 (PSN VI)"])
+        self.sat_preset.currentIndexChanged.connect(self._on_sat_preset_changed)
+
         self.sat_name = QLineEdit("SAT-1")
         self.sat_center = QLineEdit("")
         self.sat_carrier_freq = QLineEdit("0")
@@ -695,6 +763,7 @@ class AcuNativeView(QWidget):
         self.sat_lock_th = QLineEdit("5,0")
 
         form = QFormLayout()
+        form.addRow("Preset", self.sat_preset)
         form.addRow("Name", self.sat_name)
         form.addRow("Center Freq (MHz)", self.sat_center)
         form.addRow("Carrier Freq (MHz)", self.sat_carrier_freq)
@@ -798,7 +867,7 @@ class AcuNativeView(QWidget):
 
         title = QLabel("Manual Control")
         title.setObjectName("acuSectionTitle")
-        sub = QLabel("Set position and/or speed via dirx")
+        sub = QLabel("Direct position control (cmd,dir) - Proven Working!")
         sub.setObjectName("acuSectionSub")
         root.addWidget(title)
         root.addWidget(sub)
@@ -807,14 +876,50 @@ class AcuNativeView(QWidget):
         row.setSpacing(12)
         root.addLayout(row, 1)
 
-        # LEFT: forms
+        # LEFT: Simple DIR command (matching working terminal code)
         left = _panel()
         l = QVBoxLayout(left)
         l.setContentsMargins(14, 14, 14, 14)
         l.setSpacing(12)
 
+        # Simple DIR section (cmd,dir AZ EL POL)
+        dir_title = QLabel("Simple Position Command (cmd,dir)")
+        dir_title.setObjectName("acuSubTitle")
+        dir_sub = QLabel("✅ This format is PROVEN to work!")
+        dir_sub.setObjectName("acuSectionSub")
+        l.addWidget(dir_title)
+        l.addWidget(dir_sub)
+
+        self.dir_az = QLineEdit("")
+        self.dir_az.setPlaceholderText("e.g., 80.23")
+        self.dir_el = QLineEdit("")
+        self.dir_el.setPlaceholderText("e.g., 40.0")
+        self.dir_pol = QLineEdit("")
+        self.dir_pol.setPlaceholderText("e.g., 0")
+
+        form_dir = QFormLayout()
+        form_dir.addRow("Azimuth (deg)", self.dir_az)
+        form_dir.addRow("Elevation (deg)", self.dir_el)
+        form_dir.addRow("Polarization (deg)", self.dir_pol)
+        l.addLayout(form_dir)
+
+        self.btn_send_dir = QPushButton("Move Antenna (cmd,dir)")
+        self.btn_send_dir.setProperty("role", "primary")
+        l.addWidget(self.btn_send_dir)
+
+        l.addSpacing(20)
+
+        # Divider line
+        divider = QFrame()
+        divider.setFrameShape(QFrame.HLine)
+        divider.setFrameShadow(QFrame.Sunken)
+        l.addWidget(divider)
+
+        l.addSpacing(10)
+
         # Dirx section
-        dirx_title = QLabel("Manual Dirx Command")
+        dirx_title = QLabel("Advanced Dirx Command")
+
         dirx_title.setObjectName("acuSubTitle")
         l.addWidget(dirx_title)
 
@@ -910,6 +1015,7 @@ class AcuNativeView(QWidget):
         row.addWidget(right, 2)
 
         # wiring
+        self.btn_send_dir.clicked.connect(self._manual_send_dir)
         self.btn_send_dirx.clicked.connect(self._manual_send_dirx)
         self.btn_send_speed.clicked.connect(self._manual_send_speed_only)
 
@@ -918,6 +1024,32 @@ class AcuNativeView(QWidget):
     def _blank(self, s: str) -> str:
         s = (s or "").strip()
         return s if s else "blank"
+
+    @Slot()
+    def _manual_send_dir(self):
+        """
+        Send simple cmd,dir command (matching working terminal code)
+        Format: $cmd,dir,AZ,EL,POL*checksum\r\n
+        """
+        if not self._require_worker():
+            return
+
+        az = self.dir_az.text().strip()
+        el = self.dir_el.text().strip()
+        pol = self.dir_pol.text().strip()
+
+        if not az or not el or not pol:
+            QMessageBox.warning(
+                self,
+                "Missing Values",
+                "Please enter all three values: Azimuth, Elevation, and Polarization"
+            )
+            return
+
+        # Build frame: cmd,dir,AZ,EL,POL (matching working code)
+        frame = build_frame("cmd", "dir", az, el, pol)
+        self._append_log(f"[DIR] Moving to Az={az}° El={el}° Pol={pol}°")
+        self._send_raw_frame(frame)
 
     @Slot()
     def _manual_send_dirx(self):
@@ -1056,12 +1188,25 @@ class AcuNativeView(QWidget):
     # ----------------- helpers -----------------
 
     def _append_log(self, s: str):
+        """Append to log consoles, respecting pause state."""
         if hasattr(self, "log") and self.log:
             self.log.append(s)
             self.log.moveCursor(QTextCursor.End)
 
-        if hasattr(self, "log_big") and self.log_big:
+        if hasattr(self, "log_big") and self.log_big and not self._log_paused:
             self.log_big.append(s)
+            self.log_big.moveCursor(QTextCursor.End)
+
+    @Slot()
+    def _toggle_log_pause(self):
+        """Toggle pause state for log console."""
+        self._log_paused = self.btn_pause_log.isChecked()
+        if self._log_paused:
+            self.btn_pause_log.setText("Resume")
+            self._append_log("[Log Paused]")
+        else:
+            self.btn_pause_log.setText("Pause")
+            self.log_big.append("[Log Resumed]")
             self.log_big.moveCursor(QTextCursor.End)
 
     def _clear_log(self):
@@ -1143,8 +1288,8 @@ class AcuNativeView(QWidget):
         self._worker.connected.connect(self._on_connected)
         self._worker.status.connect(self._on_status)
         self._worker.error.connect(self._on_error)
-        self._worker.tx.connect(lambda msg: self._append_log(f"TX: {msg}"))
-        self._worker.rx.connect(lambda msg: self._append_log(f"RX: {msg}"))
+        self._worker.tx.connect(lambda msg: self._append_log(f"$ TX: {msg}"))
+        self._worker.rx.connect(lambda msg: self._append_log(f"* RX: {msg}"))
 
         self.btn_connect.setEnabled(False)
         self.btn_disconnect.setEnabled(True)
@@ -1184,6 +1329,12 @@ class AcuNativeView(QWidget):
         if self._worker:
             self._worker.set_stream(on)
 
+    @Slot(bool)
+    def _on_stream_sat_toggle(self, on: bool):
+        """Handle Stream SAT checkbox toggle."""
+        if self._worker:
+            self._worker.set_stream_sat(on)
+
     @Slot(int)
     def _on_stream_interval(self, ms: int):
         if self._worker:
@@ -1194,6 +1345,15 @@ class AcuNativeView(QWidget):
     def _send_custom_frame(self, frame_code: str):
         if not self._require_worker():
             return
+        # Build preview frame to show in log
+        from services.acu_driver import build_frame
+        parts = [p.strip() for p in frame_code.split(",") if p.strip()]
+        if len(parts) >= 2:
+            preview = build_frame(parts[0], parts[1], *parts[2:])
+        else:
+            preview = build_frame("cmd", frame_code)
+        
+        self._append_log(f"[CMD] Sending: {frame_code} → {preview.strip()}")
         self._worker.send_command.emit(frame_code, [], 2, 2.0)
 
     @Slot()
@@ -1235,7 +1395,23 @@ class AcuNativeView(QWidget):
             return
 
         self._append_log(f"[SAT] apply name={name}")
-        self._worker.request_sat_apply.emit(name, center, cf, cr, lon, pol, lock, 2, 2.0)
+        self._append_log(f"[SAT] apply name={name}")
+        self._worker.request_sat_apply.emit(name, center, cf, cr, lon, pol, lock, 2, 5.0)
+
+    @Slot(int)
+    def _on_sat_preset_changed(self, index: int):
+        txt = self.sat_preset.currentText()
+        if "Nusantara 1" in txt:
+            # PSN VI Parameters
+            # Longitude: 146.0 E
+            # Beacon: 4196 MHz (Vertical/Horizontal) -> Picking V=1
+            self.sat_name.setText("Nusantara 1")
+            self.sat_center.setText("4196")
+            self.sat_carrier_freq.setText("4196")
+            self.sat_carrier_rate.setText("0")
+            self.sat_lon.setText("146.0")
+            self.sat_pol_mode.setText("1") # Vertical
+            self.sat_lock_th.setText("5.0")
 
     @Slot()
     def _apply_place(self):
@@ -1257,25 +1433,19 @@ class AcuNativeView(QWidget):
     def _on_custom_send(self):
         if not self._require_worker():
             return
-
-        frame = self.frame_in.text().strip()
-        data_str = self.data_in.text().strip()
-
-        data_list: list[int] = []
-        if data_str:
-            try:
-                data_list = [int(x.strip()) for x in data_str.split(",") if x.strip() != ""]
-            except ValueError:
-                QMessageBox.warning(self, "ACU", "Data must be comma-separated integers (e.g. 123,45,67)")
-                return
-
-        retries = int(self.retries_in.value())
-        timeout = float(self.timeout_in.value())
-
-        self._append_log(f"[Custom] {frame} data={data_list} retries={retries} timeout={timeout}")
-        self._worker.send_command.emit(frame, data_list, retries, timeout)
-
-    # ----------------- UI update slots -----------------
+        
+        # ✅ Use cmd_input (the actual field that exists)
+        cleaned = self.cmd_input.text().strip()
+        if not cleaned:
+            return
+        
+        # Remove leading $ if present
+        if cleaned.startswith("$"):
+            cleaned = cleaned[1:]
+        cleaned = cleaned.strip()
+        
+        self._append_log(f"[Custom] Sending: {cleaned}")
+        self._worker.send_command.emit(cleaned, [], 2, 2.0)
 
     @Slot(bool)
     def _on_connected(self, ok: bool):
@@ -1284,10 +1454,52 @@ class AcuNativeView(QWidget):
             self._set_mode_badge(None)
         self.btn_connect.setEnabled(not ok)
         self.btn_disconnect.setEnabled(ok)
+        self.btn_disconnect.setEnabled(ok)
         self._append_log("Connected" if ok else "Disconnected")
+
+        if ok:
+             # Auto-read satellite config on connect to populate dashboard
+             # Delay to 2500ms to avoid fighting with initial SHOW stream
+             QTimer.singleShot(2500, lambda: self._worker.request_sat_read.emit())
+
+        # Update Satellite Page Status
+        if hasattr(self, "sat_conn_status"):
+            if ok:
+                self.sat_conn_status.setText("Status: Connected to ACU")
+                self.sat_conn_status.setStyleSheet("color: green; font-weight: bold;")
+            else:
+                self.sat_conn_status.setText("Status: Disconnected")
+                self.sat_conn_status.setStyleSheet("color: red; font-weight: bold;")
+
+
+    def _format_polarization(self, pol_value):
+        """Format polarization: 0=Horizontal, 1=Vertical"""
+        try:
+            val = int(pol_value)
+            if val == 0:
+                return "Horizontal (0)"
+            elif val == 1:
+                return "Vertical (1)"
+            return str(pol_value)
+        except:
+            return str(pol_value)
 
     @Slot(dict)
     def _on_status(self, data: dict):
+        # 🔄 ROLLBACK: Simple forward dulu untuk debugging
+        # Forward langsung tanpa mapping
+        if data and isinstance(data, dict):
+            self.telemetry_data.emit(data)
+        
+        # 📝 Log ACU responses
+        import time
+        timestamp = time.strftime('[%H:%M:%S]')
+        if 'raw' in data:
+            raw_data = data['raw']
+            frame_code = data.get('frame_code', 'unknown')
+            self._append_log(f"{timestamp} 📥 ACU [{frame_code}]: {raw_data[:150]}")
+            self._append_log(f"{timestamp} 📥 ACU Response: {data['raw'][:120]}")
+        
         frame_code = str(data.get("frame_code", "")).lower()
 
         # SAT updates
@@ -1306,8 +1518,22 @@ class AcuNativeView(QWidget):
             set_if(self.sat_carrier_freq, "carrier_freq")
             set_if(self.sat_carrier_rate, "carrier_rate")
             set_if(self.sat_lon, "sat_longitude")
-            set_if(self.sat_pol_mode, "pol_mode")
+            # Format polarization mode
+            pol_val = data.get("pol_mode")
+            if pol_val is not None and str(pol_val).strip() != "":
+                formatted_pol = self._format_polarization(pol_val)
+                self.sat_pol_mode.setText(formatted_pol)
             set_if(self.sat_lock_th, "lock_threshold")
+            
+            # ✅ Update Dashboard cards with satellite info
+            if "sat_name" in data and "satellite_name" in self.cards:
+                self.cards["satellite_name"].value_label.setText(str(data.get("sat_name", "-")))
+            if "sat_longitude" in data and "satellite_longitude" in self.cards:
+                self.cards["satellite_longitude"].value_label.setText(str(data.get("sat_longitude", "-")))
+            if pol_val is not None and "polarization_mode" in self.cards:
+                formatted_pol = self._format_polarization(pol_val)
+                self.cards["polarization_mode"].value_label.setText(formatted_pol)
+            
             return
 
         # PLACE updates
@@ -1356,9 +1582,9 @@ class AcuNativeView(QWidget):
             return f
 
         mapping = {
-            "target_azimuth":      scale_deg(pick("target_azimuth", "caz")),
-            "target_elevation":    scale_deg(pick("target_elevation", "cel")),
-            "target_polarization": scale_deg(pick("target_polarization", "cpol")),
+            "target_azimuth":      scale_deg(pick("target_azimuth", "caz", "preset_azimuth")),
+            "target_elevation":    scale_deg(pick("target_elevation", "cel", "preset_pitch")),
+            "target_polarization": scale_deg(pick("target_polarization", "cpol", "preset_polarization")),
             "current_azimuth":     scale_deg(pick("current_azimuth", "taz", "az")),
             "current_elevation":   scale_deg(pick("current_pitch", "current_elevation", "tel", "el")),
             "current_polarization": scale_deg(pick("current_polarization", "tpol", "pol")),

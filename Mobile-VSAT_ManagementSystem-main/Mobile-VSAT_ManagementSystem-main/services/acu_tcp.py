@@ -49,6 +49,17 @@ class ACUTcp:
         for attempt in range(retries):
             with self.lock:
                 try:
+                    # Drain input buffer to avoid reading stale streaming data
+                    self.sock.settimeout(0.01)
+                    try:
+                        while True:
+                            if not self.sock.recv(4096):
+                                break
+                    except socket.timeout:
+                        pass
+                    except Exception:
+                        pass
+
                     # Send
                     self.sock.settimeout(timeout)
                     self.sock.sendall(raw)
@@ -60,7 +71,7 @@ class ACUTcp:
                     # We will keep reading until:
                     # - overall timeout reached, OR
                     # - we already got at least one newline AND the socket goes idle briefly
-                    idle_timeout = 0.15
+                    idle_timeout = 0.5
                     last_rx = None
 
                     while time.time() - start < timeout:

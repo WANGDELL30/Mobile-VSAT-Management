@@ -8,24 +8,25 @@ CRLF = b"\r\n"
 def xor_checksum(payload: str) -> str:
     """
     XOR of all ASCII chars between $ and * (excluding both)
-    Return 2-hex lowercase string.
+    Return 2-hex UPPERCASE string (matching working code).
     """
     csum = 0
     for b in payload.encode("ascii"):
         csum ^= b
-    return f"{csum:02x}"
+    return f"{csum:02X}"  # Uppercase to match working terminal code
 
 def build_frame(frame_type: str, frame_code: str, *data_fields: str) -> str:
     """
     Build protocol frame:
-      $cmd,xxx,ddd,...,*hh\\r\\n
+      $cmd,xxx,ddd,...*HH\r\n
+    ✅ FIXED: NO trailing comma before * (was causing ACU to reject commands)
     """
     parts = [f"${frame_type}", frame_code]
     parts.extend(data_fields)
 
-    payload = ",".join(parts)
+    payload = ",".join(parts)  # NO trailing comma!
     csum = xor_checksum(payload[1:])  # exclude $
-    return f"{payload},*{csum}\r\n"
+    return f"{payload}*{csum}\r\n"
 
 class ACUSerial:
     mode = "serial"

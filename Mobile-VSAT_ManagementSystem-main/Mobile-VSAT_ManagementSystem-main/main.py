@@ -49,9 +49,10 @@ def audit_assets() -> None:
     """
     Debug helper: must be called AFTER QApplication is created.
     """
-    print("\n=== MVMS ASSET AUDIT ===")
-    fmts = [bytes(x).decode(errors="ignore") for x in QImageReader.supportedImageFormats()]
-    print("Supported image formats:", fmts)
+# Commented out verbose asset audit
+#     print("\n=== MVMS ASSET AUDIT ===")
+#     fmts = [bytes(x).decode(errors="ignore") for x in QImageReader.supportedImageFormats()]
+#     print("Supported image formats:", fmts)
 
     must_exist = [
         "assets/Dashboard.png",
@@ -164,11 +165,26 @@ class MainWindow(QMainWindow):
         nav_layout.setContentsMargins(0, 0, 0, 0)
         nav_layout.setSpacing(0)
 
+        # Title with PSN logo
+        title_container = QWidget()
+        title_layout = QHBoxLayout(title_container)
+        title_layout.setContentsMargins(8, 10, 8, 10)
+        title_layout.setSpacing(8)
+        
+        # PSN Logo
+        psn_logo = QLabel()
+        psn_pixmap = QPixmap(resource_path("assets/cropped-psn-ico.png"))
+        psn_logo.setPixmap(psn_pixmap.scaled(40, 40, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        title_layout.addWidget(psn_logo)
+        
+        # MVMS Text
         title = QLabel("MVMS")
         title.setObjectName("MenuLabel")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setFixedHeight(60)
-        nav_layout.addWidget(title)
+        title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        title_layout.addWidget(title)
+        title_layout.addStretch(1)
+        
+        nav_layout.addWidget(title_container)
 
         self.button_group = QButtonGroup(self)
         self.button_group.setExclusive(True)
@@ -182,12 +198,39 @@ class MainWindow(QMainWindow):
             self.nav_buttons.append(btn)
 
         nav_layout.addStretch(1)
+        
+        # Global Emergency Stop button
+        self.btn_emergency_stop = QPushButton("🛑 EMERGENCY STOP")
+        self.btn_emergency_stop.setObjectName("EmergencyStopButton")
+        self.btn_emergency_stop.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_emergency_stop.setMinimumHeight(50)
+        self.btn_emergency_stop.clicked.connect(self._on_emergency_stop)
+        nav_layout.addWidget(self.btn_emergency_stop)
+        
         return nav_widget
 
     def _create_main_content(self) -> QStackedWidget:
         stacked = QStackedWidget()
-        for _, _, view_class in self.PAGES:
-            stacked.addWidget(view_class())
+        
+        # Create view instances and store references
+        self.dashboard_view = None
+        self.acu_view = None
+        
+        for idx, (_, _, view_class) in enumerate(self.PAGES):
+            view = view_class()
+            stacked.addWidget(view)
+            
+            # Store references to key views
+            if idx == 0:  # Dashboard
+                self.dashboard_view = view
+            elif idx == 1:  # ACU Settings
+                self.acu_view = view
+        
+        # ✅ Connect ACU telemetry to Dashboard
+        if self.acu_view and self.dashboard_view:
+            if hasattr(self.acu_view, 'telemetry_data') and hasattr(self.dashboard_view, '_on_tcp_data'):
+                self.acu_view.telemetry_data.connect(self.dashboard_view._on_tcp_data)
+        
         return stacked
 
     def _connect_signals(self):
@@ -211,6 +254,25 @@ class MainWindow(QMainWindow):
         new = self.stacked_widget.currentWidget()
         if new:
             self._call_lifecycle(new, "on_enter")
+
+
+    def _on_emergency_stop(self):
+        """Handle global emergency stop button - sends STOP to ACU."""
+        from PySide6.QtWidgets import QMessageBox
+        
+        reply = QMessageBox.question(
+            self, 
+            "Emergency Stop",
+            "Send EMERGENCY STOP to ACU?\n\nThis will immediately halt antenna movement.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            # Send stop via ACU view
+            if hasattr(self, 'acu_view') and self.acu_view:
+                self.acu_view._on_stop()
+                self.statusBar().showMessage("⚠ EMERGENCY STOP SENT", 5000)
 
 
 def setup_app_style() -> QPalette:
@@ -237,7 +299,7 @@ if __name__ == "__main__":
     app.setPalette(setup_app_style())
 
     # ✅ Safe: QPixmap/QIcon only after QApplication exists
-    audit_assets()
+    # audit_assets()  # Disabled - too verbose
 
     window = MainWindow()
     window.show()

@@ -91,7 +91,8 @@ class ACUClient:
         - Real ACU: parse_show(...)
         - Mock server: key=value lines -> parse_kv_text(...)
         """
-        frame = build_frame("show", "1")
+        # ✅ FIX: Use correct ACU command format (matches testingport.py)
+        frame = build_frame("cmd", "get show")  # Changed from ("show", "1")
         resp = self._safe_send_and_read(frame, retries=retries, timeout=timeout)
 
         # If mock server output contains "key=value", parse that

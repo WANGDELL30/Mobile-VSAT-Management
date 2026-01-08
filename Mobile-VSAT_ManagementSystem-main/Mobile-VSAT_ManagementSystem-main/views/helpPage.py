@@ -1,83 +1,177 @@
-# views/helpPage.py
+# views/helpPage.py - Embedded PDF viewer using PyMuPDF
 import os
-from pathlib import Path
+try:
+    import fitz  # PyMuPDF
+    HAS_PYMUPDF = True
+except ImportError:
+    HAS_PYMUPDF = False
 
-from dotenv import load_dotenv
-from PySide6.QtCore import QUrl
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QToolButton
-from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap, QImage
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
+    QLabel, QScrollArea, QSpinBox, QMessageBox
+)
 
 from components.utils import resource_path
 
-load_dotenv()
-
-
-def _to_qurl(value: str) -> QUrl:
-    value = (value or "").strip()
-    if not value:
-        return QUrl()
-    if value.startswith(("http://", "https://", "file://")):
-        return QUrl(value)
-    p = Path(value)
-    if not p.is_absolute():
-        p = (Path.cwd() / p).resolve()
-    return QUrl.fromLocalFile(str(p))
-
 
 class HelpPage(QWidget):
+    """Embedded PDF Viewer for Manual.pdf"""
+    
     def __init__(self):
         super().__init__()
-
-        help_url = os.getenv("HELP_URL") or os.getenv("help") or ""
-
-        root = QVBoxLayout()
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        bar = QHBoxLayout()
-        bar.setContentsMargins(6, 6, 6, 6)
-        bar.setSpacing(8)
-
-        back_btn = QToolButton()
-        back_btn.setIcon(QIcon(resource_path("assets/back.png")))
-        fwd_btn = QToolButton()
-        fwd_btn.setIcon(QIcon(resource_path("assets/forward.png")))
-        ref_btn = QToolButton()
-        ref_btn.setIcon(QIcon(resource_path("assets/refresh.png")))
-
-        bar.addWidget(back_btn)
-        bar.addWidget(fwd_btn)
-        bar.addWidget(ref_btn)
-        bar.addStretch()
-
-        self.webview = QWebEngineView()
-        url = _to_qurl(help_url)
-
-        if not url.isValid():
-            self.webview.setHtml(
-                "<h2>Help page not configured</h2>"
-                "<p>Set <b>HELP_URL</b> in <code>.env</code>.</p>"
-                "<p>You can use a local file, e.g. <code>assets/help.html</code></p>"
+        
+        self.current_page = 0
+        self.pdf_document = None
+        self.zoom_level = 1.5  # Scale factor for better readability
+        
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # Top toolbar
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(10, 10, 10, 10)
+        toolbar.setSpacing(10)
+        
+        # Page navigation
+        self.prev_btn = QPushButton("◀ Previous")
+        self.prev_btn.clicked.connect(self._prev_page)
+        
+        self.next_btn = QPushButton("Next ▶")
+        self.next_btn.clicked.connect(self._next_page)
+        
+        self.page_label = QLabel("Page:")
+        self.page_spin = QSpinBox()
+        self.page_spin.setMinimum(1)
+        self.page_spin.setValue(1)
+        self.page_spin.valueChanged.connect(self._go_to_page)
+        
+        self.total_pages_label = QLabel("/ ?")
+        
+        # Zoom controls
+        self.zoom_in_btn = QPushButton("🔍+")
+        self.zoom_in_btn.clicked.connect(self._zoom_in)
+        self.zoom_out_btn = QPushButton("🔍-")
+        self.zoom_out_btn.clicked.connect(self._zoom_out)
+        
+        toolbar.addWidget(self.prev_btn)
+        toolbar.addWidget(self.next_btn)
+        toolbar.addWidget(self.page_label)
+        toolbar.addWidget(self.page_spin)
+        toolbar.addWidget(self.total_pages_label)
+        toolbar.addStretch()
+        toolbar.addWidget(self.zoom_out_btn)
+        toolbar.addWidget(self.zoom_in_btn)
+        
+        layout.addLayout(toolbar)
+        
+        # Scroll area for PDF content
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setAlignment(Qt.AlignCenter)
+        
+        # PDF display label
+        self.pdf_label = QLabel("Loading Manual...")
+        self.pdf_label.setAlignment(Qt.AlignCenter)
+        self.pdf_label.setStyleSheet("background-color: white; padding: 20px;")
+        self.pdf_label.setScaledContents(False)
+        
+        scroll.setWidget(self.pdf_label)
+        layout.addWidget(scroll)
+        
+        self.setLayout(layout)
+        
+        # Load PDF
+        self.manual_path = resource_path("assets/Manual.pdf")
+        self._load_pdf()
+    
+    def _load_pdf(self):
+        """Load PDF document and display first page"""
+        if not HAS_PYMUPDF:
+            self.pdf_label.setText(
+                "<h2>PyMuPDF Not Installed</h2>"
+                "<p>Run: <code>pip install PyMuPDF</code></p>"
             )
-        else:
-            self.webview.setUrl(url)
-
-        back_btn.clicked.connect(self.webview.back)
-        fwd_btn.clicked.connect(self.webview.forward)
-        ref_btn.clicked.connect(self.webview.reload)
-
-        def update_nav():
-            h = self.webview.history()
-            back_btn.setEnabled(h.canGoBack())
-            fwd_btn.setEnabled(h.canGoForward())
-
-        update_nav()
-        self.webview.loadFinished.connect(lambda _ok: update_nav())
-        self.webview.urlChanged.connect(lambda _u: update_nav())
-        self.webview.loadStarted.connect(update_nav)
-        self.webview.loadProgress.connect(lambda _p: update_nav())
-
-        root.addLayout(bar)
-        root.addWidget(self.webview)
-        self.setLayout(root)
+            return
+        
+        if not os.path.exists(self.manual_path):
+            self.pdf_label.setText(
+                "<h2>Manual Not Found</h2>"
+                "<p>Manual.pdf should be in <b>assets</b> folder.</p>"
+            )
+            return
+        
+        try:
+            self.pdf_document = fitz.open(self.manual_path)
+            total_pages = len(self.pdf_document)
+            self.total_pages_label.setText(f"/ {total_pages}")
+            self.page_spin.setMaximum(total_pages)
+            self._render_page(0)
+        except Exception as e:
+            self.pdf_label.setText(f"<h2>Error Loading PDF</h2><p>{str(e)}</p>")
+    
+    def _render_page(self, page_num):
+        """Render specific PDF page as image"""
+        if not self.pdf_document:
+            return
+        
+        try:
+            page = self.pdf_document[page_num]
+            
+            # Render page to pixmap with zoom
+            mat = fitz.Matrix(self.zoom_level, self.zoom_level)
+            pix = page.get_pixmap(matrix=mat)
+            
+            # Convert to QImage
+            img_data = pix.samples
+            qimage = QImage(
+                img_data,
+                pix.width,
+                pix.height,
+                pix.stride,
+                QImage.Format_RGB888
+            )
+            
+            # Display in label
+            pixmap = QPixmap.fromImage(qimage)
+            self.pdf_label.setPixmap(pixmap)
+            self.pdf_label.resize(pixmap.size())
+            
+            self.current_page = page_num
+            self.page_spin.blockSignals(True)
+            self.page_spin.setValue(page_num + 1)
+            self.page_spin.blockSignals(False)
+            
+            # Update button states
+            self.prev_btn.setEnabled(page_num > 0)
+            self.next_btn.setEnabled(page_num < len(self.pdf_document) - 1)
+            
+        except Exception as e:
+            self.pdf_label.setText(f"<h2>Error Rendering Page</h2><p>{str(e)}</p>")
+    
+    def _prev_page(self):
+        """Go to previous page"""
+        if self.current_page > 0:
+            self._render_page(self.current_page - 1)
+    
+    def _next_page(self):
+        """Go to next page"""
+        if self.pdf_document and self.current_page < len(self.pdf_document) - 1:
+            self._render_page(self.current_page + 1)
+    
+    def _go_to_page(self, page_num):
+        """Jump to specific page"""
+        if self.pdf_document:
+            self._render_page(page_num - 1)
+    
+    def _zoom_in(self):
+        """Increase zoom level"""
+        self.zoom_level = min(self.zoom_level + 0.2, 3.0)
+        self._render_page(self.current_page)
+    
+    def _zoom_out(self):
+        """Decrease zoom level"""
+        self.zoom_level = max(self.zoom_level - 0.2, 0.5)
+        self._render_page(self.current_page)
