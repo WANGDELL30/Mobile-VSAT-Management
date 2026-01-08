@@ -757,6 +757,17 @@ class DashboardView(QWidget):
         
         # Merge and update UI
         self.data.update(d)
+        
+        # ✅ FIX: Map ACU driver keys (current_*) to Dashboard expected keys
+        if "current_azimuth" in self.data:
+            self.data["azimuth"] = self.data["current_azimuth"]
+        if "current_pitch" in self.data:
+            self.data["elevation"] = self.data["current_pitch"]
+        if "current_polarization" in self.data:
+            self.data["polarization"] = self.data["current_polarization"]
+        if "agc_level" in self.data:
+            self.data["cn_ratio"] = self.data["agc_level"]
+            self.data["signal_strength"] = self.data["agc_level"]
 
         az = self._scale_deg(self.data.get("azimuth", "N/A"))
         el = self._scale_deg(self.data.get("elevation", "N/A"))
