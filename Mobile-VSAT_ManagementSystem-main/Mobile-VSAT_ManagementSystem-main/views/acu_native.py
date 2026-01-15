@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QLineEdit, QFormLayout,
     QMessageBox, QFrame, QTextEdit, QCheckBox, QSpinBox, QDoubleSpinBox,
-    QButtonGroup, QStackedWidget, QSizePolicy, QComboBox
+    QButtonGroup, QStackedWidget, QSizePolicy, QComboBox, QScrollArea
 )
 
 from services.acu_client import ACUClient
@@ -476,12 +476,11 @@ class AcuNativeView(QWidget):
         self.nav_group.idClicked.connect(self._switch_acu_page)
 
         btns = [
-            "Dashboard",
+            "Telemetry",
             "Log Console",
             "Satellite",
             "Local Location",
             "Manual",
-            "Manual Book",
         ]
 
         for idx, name in enumerate(btns):
@@ -543,15 +542,11 @@ class AcuNativeView(QWidget):
         # Page 4: Manual
         self.page_manual = self._build_manual_page()
 
-        # Page 5: Manual Book
-        self.page_book = self._build_manual_book_page()
-
         self.page_stack.addWidget(self.page_dashboard)  # 0
         self.page_stack.addWidget(self.page_log)        # 1
         self.page_stack.addWidget(self.page_sat)        # 2
         self.page_stack.addWidget(self.page_loc)        # 3
         self.page_stack.addWidget(self.page_manual)     # 4
-        self.page_stack.addWidget(self.page_book)       # 5
 
         return self.page_stack
 
@@ -615,6 +610,11 @@ class AcuNativeView(QWidget):
         loc_grid.addWidget(self.cards["latitude"], 0, 1)
         loc_grid.addWidget(self.cards["gps_status"], 0, 2, 1, 2)
 
+        loc_grid.addWidget(self.cards["gps_status"], 0, 2, 1, 2)
+        
+        # ✅ FIX: Prevent stretching downward
+        root.addStretch(1)
+
         return wrap
 
     def _build_commands_panel(self) -> QWidget:
@@ -637,15 +637,15 @@ class AcuNativeView(QWidget):
         self.btn_reset = QPushButton("Reset")
         self.btn_search = QPushButton("Search (align star)")
         self.btn_stow = QPushButton("Stow (collection)")
-        self.btn_stop = QPushButton("STOP")
+        # self.btn_stop = QPushButton("STOP")  <-- Removed per user request
 
-        self.btn_stop.setObjectName("acuStopButton")
-        self.btn_stop.setProperty("role", "danger")
+        # self.btn_stop.setObjectName("acuStopButton")
+        # self.btn_stop.setProperty("role", "danger")
 
         grid.addWidget(self.btn_reset, 0, 0)
         grid.addWidget(self.btn_search, 0, 1)
-        grid.addWidget(self.btn_stow, 1, 0)
-        grid.addWidget(self.btn_stop, 1, 1)
+        grid.addWidget(self.btn_stow, 1, 0, 1, 2) # Span 2 columns since stop is gone
+        # grid.addWidget(self.btn_stop, 1, 1)
         root.addLayout(grid)
 
         # Custom Command
@@ -688,7 +688,7 @@ class AcuNativeView(QWidget):
         self.btn_reset.clicked.connect(lambda: self._send_custom_frame("cmd,reset"))
         self.btn_search.clicked.connect(lambda: self._send_custom_frame("cmd,search"))
         self.btn_stow.clicked.connect(lambda: self._send_custom_frame("cmd,stow"))
-        self.btn_stop.clicked.connect(lambda: self._send_custom_frame("cmd,stop"))
+        # self.btn_stop.clicked.connect(lambda: self._send_custom_frame("cmd,stop"))
         self.btn_send.clicked.connect(self._on_custom_send)
         self.btn_clear_log.clicked.connect(self._clear_log)
 
@@ -860,9 +860,16 @@ class AcuNativeView(QWidget):
     # -------- Manual --------
 
     def _build_manual_page(self) -> QWidget:
+        # ✅ FIX: Wrap entire page in QScrollArea for small screens
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
         w = QWidget()
+        scroll.setWidget(w)
+
         root = QVBoxLayout(w)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(6, 0, 16, 0) # Extra right margin for scrollbar
         root.setSpacing(8)
 
         title = QLabel("Manual Control")
@@ -1019,7 +1026,7 @@ class AcuNativeView(QWidget):
         self.btn_send_dirx.clicked.connect(self._manual_send_dirx)
         self.btn_send_speed.clicked.connect(self._manual_send_speed_only)
 
-        return w
+        return scroll
 
     def _blank(self, s: str) -> str:
         s = (s or "").strip()
@@ -1085,99 +1092,7 @@ class AcuNativeView(QWidget):
 
     # -------- Manual Book --------
 
-    def _build_manual_book_page(self) -> QWidget:
-        w = QWidget()
-        root = QVBoxLayout(w)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
 
-        title = QLabel("Manual Book")
-        title.setObjectName("acuSectionTitle")
-        sub = QLabel("Embedded PDF manual")
-        sub.setObjectName("acuSectionSub")
-        root.addWidget(title)
-        root.addWidget(sub)
-
-        panel = _panel()
-        p = QVBoxLayout(panel)
-        p.setContentsMargins(14, 14, 14, 14)
-        p.setSpacing(10)
-
-        # Top row with actions
-        row = QHBoxLayout()
-        row.setSpacing(10)
-
-        self.manual_pdf_path = resource_path("assets/Manual.pdf")
-
-        self.btn_open_external = QPushButton("Open externally")
-        self.btn_open_external.setProperty("role", "primary")
-        row.addWidget(self.btn_open_external)
-        row.addStretch(1)
-
-        p.addLayout(row)
-
-        viewer_container = QFrame()
-        viewer_container.setObjectName("acuPdfContainer")
-        vc = QVBoxLayout(viewer_container)
-        vc.setContentsMargins(0, 0, 0, 0)
-        vc.setSpacing(0)
-
-        self._pdf_view_kind = "none"
-        self._pdf_doc = None
-        self._pdf_view = None
-
-        # Try QtPdfWidgets first (best)
-        try:
-            from PySide6.QtPdf import QPdfDocument
-            from PySide6.QtPdfWidgets import QPdfView
-
-            doc = QPdfDocument(self)
-            view = QPdfView(self)
-            view.setDocument(doc)
-
-            if os.path.exists(self.manual_pdf_path):
-                doc.load(self.manual_pdf_path)
-
-            self._pdf_doc = doc
-            self._pdf_view = view
-            self._pdf_view_kind = "qtpdf"
-            vc.addWidget(view, 1)
-
-        except Exception:
-            # Fallback: WebEngine if available
-            try:
-                from PySide6.QtWebEngineWidgets import QWebEngineView
-
-                web = QWebEngineView(self)
-                if os.path.exists(self.manual_pdf_path):
-                    web.setUrl(QUrl.fromLocalFile(self.manual_pdf_path))
-
-                self._pdf_view = web
-                self._pdf_view_kind = "webengine"
-                vc.addWidget(web, 1)
-
-            except Exception:
-                # Final fallback: show a message
-                msg = QLabel("PDF viewer not available in this build.\nUse 'Open externally' to view Manual.pdf.")
-                msg.setWordWrap(True)
-                msg.setAlignment(Qt.AlignCenter)
-                msg.setObjectName("acuSectionSub")
-                vc.addWidget(msg, 1)
-
-        p.addWidget(viewer_container, 1)
-        root.addWidget(panel, 1)
-
-        self.btn_open_external.clicked.connect(self._open_manual_external)
-
-        return w
-
-    @Slot()
-    def _open_manual_external(self):
-        path = self.manual_pdf_path
-        if not os.path.exists(path):
-            QMessageBox.warning(self, "Manual Book", f"Manual not found:\n{path}")
-            return
-        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     # ----------------- navigation -----------------
 

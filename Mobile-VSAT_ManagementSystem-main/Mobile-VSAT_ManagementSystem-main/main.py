@@ -113,7 +113,7 @@ class MainWindow(QMainWindow):
     # (Button Text, Icon Path, View Class)
     PAGES = [
         ("Dashboard",      "assets/Dashboard.png", DashboardView),
-        ("ACU Settings",   "assets/ACU.png",       AcuNativeView),
+        ("Settings",       "assets/ACU.png",       AcuNativeView),
         ("Modem Settings", "assets/Modem.png",     ModemView),
         ("VoIP Settings",  "assets/voip.png",      VoipView),
         ("Help",           "assets/help.png",      HelpPage),
