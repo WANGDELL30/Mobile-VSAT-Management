@@ -40,12 +40,14 @@ from PySide6.QtWidgets import (
 # from services.acu_client import ACUClient
 
 from components.kpi_tile import KpiTile
+from components.neumorphism_gauge import NeumorphismGauge
 from components.signal_gauge import GaugeWidget
 from components.compass_widget import CompassWidget
 from components.elevation_widget import ElevationWidget
 from components.polar_widget import PolarWidget
 from components.utils import resource_path
 from components.MapView import MapWorker
+from services.modem_scraper import ModemScraper
 
 
 class InteractiveMapLabel(QLabel):
@@ -144,7 +146,7 @@ class DashboardView(QWidget):
     DEFAULT_ZOOM_INDEX = AVAILABLE_ZOOM_LEVELS.index(11) if 11 in AVAILABLE_ZOOM_LEVELS else 0
 
     MIN_CN_RATIO = 0.0
-    MAX_CN_RATIO = 20.0
+    MAX_CN_RATIO = 30.0  # Increased to support modem C/N values (24.7 dB)
 
     # Tile size constant for pan calculations
     TILE_SIZE = 256
@@ -165,6 +167,10 @@ class DashboardView(QWidget):
         self.tcp_worker: TcpShowWorker | None = None
         self.map_thread: QThread | None = None
         self.map_worker: MapWorker | None = None
+        
+        # ---- Modem scraper ----
+        self.modem_scraper: ModemScraper | None = None
+        self._modem_url: str | None = None
 
         # ---- Data ----
         self.data: Dict[str, Any] = self._get_default_data()
@@ -191,6 +197,14 @@ class DashboardView(QWidget):
         self._log_flush_timer.setInterval(180)
         self._log_flush_timer.timeout.connect(self._flush_log_queue)
         self._log_flush_timer.start()
+        
+        # Modem polling timer (every 2 seconds)
+        self._modem_poll_timer = QTimer(self)
+        self._modem_poll_timer.setInterval(2000)
+        self._modem_poll_timer.timeout.connect(self._poll_modem_data)
+        
+        # Initialize modem scraper with saved URL
+        self._init_modem_scraper()
 
         self.log_event("Dashboard loaded", level="info")
 
@@ -239,6 +253,11 @@ class DashboardView(QWidget):
         except Exception as e:
             self.log_event(f"Error scanning tile directory: {e}", level="error")
             return [11]
+        
+        # ✅ User Request: Always include 10 and 11
+        for z in [10, 11]:
+            if z not in zooms:
+                zooms.append(z)
         
         zooms.sort()
         return zooms or [11]
@@ -507,8 +526,8 @@ class DashboardView(QWidget):
             min_value=self.MIN_CN_RATIO,
             max_value=self.MAX_CN_RATIO,
             value=0,
-            unit="dB",
-            tick_labels=[0, 5, 10, 15, 20],
+            unit="",  # Will show dBm for TX Level or dB for C/N depending on data source
+            tick_labels=[0, 10, 20, 30],
         )
         self.signal_gauge.setObjectName("SignalGauge")
 
@@ -749,23 +768,51 @@ class DashboardView(QWidget):
 
     @Slot(dict)
     def _on_tcp_data(self, d: dict):
-        # 🔍 DEBUG: Log what we're receiving
-        self.log_event(f"📨 Received data keys: {list(d.keys())}", level="info")
-        if d:
-            sample = {k: d[k] for k in list(d.keys())[:8]}
-            self.log_event(f"📊 Data sample: {sample}", level="info")
-        
         # Merge and update UI
         self.data.update(d)
+        
+        # ✅ Priority: Use modem data for Signal and C/N if available
+        # Modem data fields: tx_level, cn_ratio_modem, modem_status
+        # ACU data fields: current_azimuth, current_pitch, current_polarization, agc_level
+        
+        # Map modem TX Level to signal_strength (priority over ACU)
+        if "tx_level" in self.data and self.data["tx_level"] is not None:
+            self.data["signal_strength"] = self.data["tx_level"]
+        
+        # Map modem C/N to cn_ratio (priority over ACU)
+        if "cn_ratio_modem" in self.data and self.data["cn_ratio_modem"] is not None:
+            self.data["cn_ratio"] = self.data["cn_ratio_modem"]
+        
+        # Fallback: Map ACU data only if modem data not available
+        if "current_azimuth" in self.data:
+            self.data["azimuth"] = self.data["current_azimuth"]
+        if "current_pitch" in self.data:
+            self.data["elevation"] = self.data["current_pitch"]
+        if "current_polarization" in self.data:
+            self.data["polarization"] = self.data["current_polarization"]
+        
+        # Only use ACU AGC if no modem C/N available
+        if "agc_level" in self.data and "cn_ratio_modem" not in self.data:
+            self.data["cn_ratio"] = self.data["agc_level"]
+            if "tx_level" not in self.data:
+                self.data["signal_strength"] = self.data["agc_level"]
 
         az = self._scale_deg(self.data.get("azimuth", "N/A"))
         el = self._scale_deg(self.data.get("elevation", "N/A"))
+        
+        # ✅ Get C/N and Signal from merged data (modem priority)
         cn = self._safe_float(self.data.get("cn_ratio", "N/A"), 0.0)
+        signal_val = self._safe_float(self.data.get("signal_strength", "N/A"), 0.0)
 
         self.kpi_satellite.set_value(str(self.data.get("satellite", "N/A")))
         self.kpi_status.set_value(str(self.data.get("status", "Offline")))
         self.kpi_cn.set_value(f"{cn:.1f} dB")
-        self.kpi_signal.set_value(str(self.data.get("signal_strength", "N/A")))
+        
+        # Display signal value with proper unit
+        if "tx_level" in self.data:
+            self.kpi_signal.set_value(f"{signal_val:.1f} dBm")  # TX Level
+        else:
+            self.kpi_signal.set_value(f"{signal_val:.1f}" if signal_val else "N/A")  # AGC or fallback
 
         # Pointing widgets (best-effort)
         try:
@@ -786,17 +833,21 @@ class DashboardView(QWidget):
         except Exception:
             pass
 
-        # Signal
+        # Signal gauge - use absolute value for display
         try:
             self.cn_label.setText(f"{cn:.1f} dB")
-            self.signal_gauge.setValue(cn)
+            
+            # ✅ UPDATED: Gauge now always follows C/N as requested
+            # regardless of whether TX Level is available
+            self.signal_gauge.setValue(min(cn, self.MAX_CN_RATIO))
+            
         except Exception:
             pass
 
         # Status pill
         status = str(self.data.get("status", "Offline"))
         self.status_label.setText(status)
-        # Use QSS-compatible state names: ok/error instead of good/bad
+        # Use Q SS-compatible state names: ok/error instead of good/bad
         self.status_label.setProperty("state", "ok" if status.lower() in ("online", "tracking", "locked") else "error")
         self.status_label.style().polish(self.status_label)
 
@@ -811,12 +862,59 @@ class DashboardView(QWidget):
 
         # Map update
         self._request_map_render()
-
-        self.log_event(f"Telemetry updated | Az={az} El={el} C/N={cn:.1f}dB", level="info")
+        
+        # Log with modem/ACU source indication
+        source = "modem" if "tx_level" in self.data else "ACU"
+        self.log_event(f"Telemetry updated ({source}) | Az={az} El={el} C/N={cn:.1f}dB Signal={signal_val:.1f}", level="info")
 
     @Slot(str)
     def _on_tcp_error(self, msg: str):
         self.log_event(f"TCP error: {msg}", level="error")
+    
+    # ---------------- Modem data polling ----------------
+    
+    def _init_modem_scraper(self):
+        """Initialize modem scraper with URL from settings."""
+        try:
+            from PySide6.QtCore import QSettings
+            settings = QSettings("MVMS", "MVMS")
+            modem_url = settings.value("modem/url", "")
+            
+            # 🔍 DEBUG: Log what we're reading from settings
+            self.log_event(f"🔍 DEBUG: Reading modem URL from settings: '{modem_url}'", level="info")
+            
+            if modem_url and modem_url.strip():
+                self._modem_url = modem_url.strip()
+                self.modem_scraper = ModemScraper(self._modem_url, timeout=2.0)
+                self._modem_poll_timer.start()
+                self.log_event(f"✅ Modem scraper initialized: {self._modem_url}", level="success")
+                self.log_event("📡 Modem polling started (every 2 seconds)", level="info")
+            else:
+                self.log_event("⚠️ No modem URL configured. Set modem URL in Modem Settings and restart Dashboard.", level="warning")
+                self.log_event("💡 TIP: Go to Modem Settings → Enter URL → Click 'Load URL' → Return to Dashboard", level="info")
+        except Exception as e:
+            self.log_event(f"❌ Failed to initialize modem scraper: {e}", level="error")
+            import traceback
+            self.log_event(f"Traceback: {traceback.format_exc()}", level="error")
+    
+    @Slot()
+    def _poll_modem_data(self):
+        """Poll modem for telemetry data (called by timer)."""
+        if not self.modem_scraper:
+            return
+        
+        try:
+            modem_data = self.modem_scraper.get_telemetry()
+            
+            # 🔍 DEBUG: Log modem data received
+            if modem_data and any(v is not None for v in modem_data.values()):
+                self.log_event(f"📡 Modem data: TX={modem_data.get('tx_level')}, C/N={modem_data.get('cn_ratio_modem')}", level="info")
+                # Merge modem data into existing data (modem data takes priority)
+                self._on_tcp_data(modem_data)
+            else:
+                self.log_event("⚠️ Modem returned empty data", level="warning")
+        except Exception as e:
+            self.log_event(f"❌ Modem poll error: {e}", level="error")
 
     # ---------------- Qt cleanup ----------------
 

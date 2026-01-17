@@ -3,7 +3,8 @@ import os
 try:
     import fitz  # PyMuPDF
     HAS_PYMUPDF = True
-except ImportError:
+except ImportError as e:
+    print(f"DEBUG: Failed to import fitz: {e}")
     HAS_PYMUPDF = False
 
 from PySide6.QtCore import Qt
@@ -85,6 +86,10 @@ class HelpPage(QWidget):
         
         # Load PDF
         self.manual_path = resource_path("assets/Manual.pdf")
+        if not os.path.exists(self.manual_path):
+             self.manual_path = resource_path("assets/manual.pdf")
+        
+        print(f"DEBUG: HelpPage PDF path: {self.manual_path}, exists: {os.path.exists(self.manual_path)}")
         self._load_pdf()
     
     def _load_pdf(self):

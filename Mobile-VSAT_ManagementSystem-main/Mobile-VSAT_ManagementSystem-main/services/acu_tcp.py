@@ -96,9 +96,16 @@ class ACUTcp:
                         return text
 
                 except socket.timeout:
+                    # ✅ FIX: Don't reconnect on timeout - connection is still valid
                     pass
+                except ConnectionError:
+                    # ✅ Connection broken, try to reconnect
+                    try:
+                        self.reconnect(timeout=timeout)
+                    except Exception:
+                        pass
                 except Exception:
-                    # try reconnect once
+                    # ✅ Other errors (like OSError), try reconnect once
                     try:
                         self.reconnect(timeout=timeout)
                     except Exception:
@@ -106,4 +113,5 @@ class ACUTcp:
 
             time.sleep(0.2)
 
-        raise TimeoutError("No TCP response after retries")
+        # ✅ Return empty string instead of raising error - connection is still alive
+        return ""

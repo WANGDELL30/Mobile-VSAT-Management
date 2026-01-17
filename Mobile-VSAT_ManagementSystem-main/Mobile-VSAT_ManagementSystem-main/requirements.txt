@@ -1,0 +1,7 @@
+PySide6
+Pillow
+pyserial
+python-dotenv
+PyMuPDF
+requests
+beautifulsoup4
